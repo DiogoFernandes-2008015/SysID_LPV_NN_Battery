@@ -46,7 +46,7 @@ plt.tight_layout() # Adjusts subplot params for a tight layout
 plt.show()
 
 #Decimation of the signals
-decimate = 5
+decimate = 10
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
@@ -80,8 +80,8 @@ def init_network_params(sizes, key):
   keys = random.split(key, len(sizes))
   return [random_layer_params(m, n, k) for m, n, k in zip(sizes[:-1], sizes[1:], keys)]
 
-# def relu(x):
-#   return jnp.maximum(0, x)
+def relu(x):
+  return jnp.maximum(0, x)
 
 def predict(params, inputs):
   """Neural network forward pass."""
@@ -89,7 +89,7 @@ def predict(params, inputs):
   for w, b in params[:-1]:
     outputs = jnp.dot(w, activations) + b
     activations = jnp.tanh(outputs) # Changed from relu to tanh
-    # activations = relu(outputs)
+    #activations = relu(outputs)
 
   final_w, final_b = params[-1]
   logits = jnp.dot(final_w, activations) + final_b
@@ -179,6 +179,7 @@ def objective_jax_nn(decision_vars):
         R0 = 0.2462*(1+delta_R0)
         # A saída é: OCV + R0*u + Vc (x[1])
         y_pred_step = OCV + R0 * u + x_step[1]
+        #y_pred_step = OCV + 0.2462 * u + x_step[1]
         return y_pred_step
     
     def process_shot_output(t_shot, x_shot, u_interp_obj):
@@ -258,11 +259,11 @@ print("\n--- Identification Results ---")
 
 # --- Time-Domain Validation Plot ---
 final_args = (params_nn_est, u_interpolation)
-final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=w0_est,
+final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_initial_estimated,
                         saveat=SaveAt(ts=jnp.array(time)), args=final_args, max_steps=100000)
 yhat = final_sol.ys.flatten()
 
-def model_output_step(t, x_step, u_interp_obj):
+def model_output_step(t, x_step,params_nn, u_interp_obj):
     u = u_interp_obj.evaluate(t)
     
     p = jnp.array([1.02726610e+03,
@@ -281,10 +282,10 @@ def model_output_step(t, x_step, u_interp_obj):
     R0 = 0.2462*(1+delta_R0)
     # A saída é: OCV + R0*u + Vc (x[1])
     y_pred_step = OCV + R0 * u + x_step[1]
+    #y_pred_step = OCV + 0.2462 * u + x_step[1]
     return y_pred_step
 
-y_hat = jax.vmap(process_shot_output, in_axes=(0, 0, None))(t_shots,final_sol.ys , u_interpolation)
-
+y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(jnp.array(time), final_sol.ys, params_nn_est, u_interpolation)
 #Metrics
 MSE = np.mean((y-y_hat)**2)
 y_mean = jnp.mean(y)
@@ -295,19 +296,12 @@ print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
 
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='Measured Data (y)', alpha=0.6)
-plt.plot(time, yhat, 'r--', label='Hybrid Model Prediction (y_hat)', linewidth=2)
-plt.plot(time, y - yhat, 'b-', label='Error', linewidth=1)
+plt.plot(time, y_hat, 'r--', label='Hybrid Model Prediction (y_hat)', linewidth=2)
+plt.plot(time, y - y_hat, 'b-', label='Error', linewidth=1)
 plt.xlabel('Time (s)')
 plt.ylabel('Velocity (w)')
 plt.title('Time-Domain Validation of the Hybrid Model')
 plt.legend()
-plt.grid(True)
-plt.show()
-
-plt.figure(figsize=(12, 7))
-plt.plot(y,yhat, 'ko')
-plt.xlabel('Measured (y)')
-plt.ylabel('Predicted (yhat)')
 plt.grid(True)
 plt.show()
 
@@ -321,7 +315,6 @@ u = u.reshape(-1)
 y = y.reshape(-1)
 
 # Signal generation parameters
-# N = 2048  # Number of samples (power of 2 is efficient for FFT)
 N = time.shape[0]
 Ts = time[1]-time[0]
 fs = 1/Ts
@@ -339,8 +332,8 @@ u_interpolation = LinearInterpolation(ts=time, ys=u)
 final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_initial_estimated, saveat=SaveAt(ts=jnp.array(time)), args=final_args,max_steps=100000)
 # final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=y[0], saveat=SaveAt(ts=jnp.array(time)), args=final_args_
 yhat = final_sol.ys.flatten()
-y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None))(time,final_sol.ys, u_interpolation)
 
+y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(jnp.array(time), final_sol.ys, params_nn_est, u_interpolation)
 # # Plot final results
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='True state', alpha=0.4)
@@ -359,3 +352,66 @@ RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
 r2 = 1.0 - (RSS / TSS)
 print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
+
+# 1. Gerar valores de SOC para plotagem (de 0 a 1)
+soc_values_np = np.linspace(0.0, 1.0, 100)
+soc_values_jax = jnp.array(soc_values_np)
+
+# 2. Definir a função que calcula as variações e os parâmetros
+# Note que a função predict aceita um array 1D de [SOC] como input
+def calculate_deltas(soc_scalar, params_nn):
+    """Calcula as variações (deltas) para um SOC escalar."""
+    nn_input = jnp.array([soc_scalar])
+    delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
+    return delta_R0, delta_R1, delta_C1
+
+# 3. Mapear a função para rodar em todos os valores de SOC (usando jax.vmap)
+# in_axes=(0, None): Mapeia o primeiro argumento (soc_values_jax), mantém o segundo (params_nn_est)
+vmap_calculate_deltas = vmap(calculate_deltas, in_axes=(0, None))
+delta_R0_vec, delta_R1_vec, delta_C1_vec = vmap_calculate_deltas(soc_values_jax, params_nn_est)
+
+# 4. Parâmetros Nominais (extraídos da sua função hybrid_battery_1rc_jax)
+# R0 = 0.2462*(1+delta_R0)
+# R1 = 2889.1884*(1+delta_R1)
+# C1 = 3319.8907*(1+delta_C1)
+R0_nominal = 0.2462
+R1_nominal = 2889.1884
+C1_nominal = 3319.8907
+
+# 5. Calcular os parâmetros absolutos
+R0_actual = R0_nominal * (1 + delta_R0_vec)
+R1_actual = R1_nominal * (1 + delta_R1_vec)
+C1_actual = C1_nominal * (1 + delta_C1_vec)
+
+# 6. Plotar os resultados
+
+fig, axs = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+fig.suptitle('Variação dos Parâmetros do Modelo 1RC em função do SOC', fontsize=16)
+
+# Plot R0
+axs[0].plot(soc_values_np, R0_actual, 'r-', linewidth=2)
+axs[0].axhline(R0_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
+axs[0].set_ylabel('$R_0$ ($\Omega$)')
+axs[0].set_title('Resistência Série ($R_0$)')
+axs[0].grid(True)
+axs[0].legend()
+
+# Plot R1
+axs[1].plot(soc_values_np, R1_actual, 'g-', linewidth=2)
+axs[1].axhline(R1_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
+axs[1].set_ylabel('$R_1$ ($\Omega$)')
+axs[1].set_title('Resistência de Polarização ($R_1$)')
+axs[1].grid(True)
+axs[1].legend()
+
+# Plot C1
+axs[2].plot(soc_values_np, C1_actual, 'b-', linewidth=2)
+axs[2].axhline(C1_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
+axs[2].set_ylabel('$C_1$ (F)')
+axs[2].set_xlabel('Estado de Carga (SOC)')
+axs[2].set_title('Capacitância de Polarização ($C_1$)')
+axs[2].grid(True)
+axs[2].legend()
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Ajusta para o suptitle
+plt.show()
