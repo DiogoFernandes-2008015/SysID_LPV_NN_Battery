@@ -461,7 +461,7 @@ yhat = final_sol.ys.flatten()
 
 y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(jnp.array(time), final_sol.ys, params_nn_est,
                                                                 u_interpolation)
-# # Plot final results
+# # Plot final result
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='True state', alpha=0.4)
 plt.plot(time, y_hat, 'b--', label='Identified Model Prediction', linewidth=2)
