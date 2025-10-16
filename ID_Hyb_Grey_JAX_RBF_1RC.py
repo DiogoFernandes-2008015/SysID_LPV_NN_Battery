@@ -46,7 +46,7 @@ plt.tight_layout()  # Adjusts subplot params for a tight layout
 plt.show()
 
 # Decimation of the signals
-decimate = 10
+decimate = 1
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
@@ -63,7 +63,7 @@ if time is not None:
     print(f"Training Dataset\nN={N}, fs={fs}, T={T}, Ts={Ts}")
 
 # --- Setup for Multiple Shooting ---
-n_shots = 10  # random
+n_shots = 10 # random
 n_timesteps_per_shot = N // n_shots
 n_states = 2
 
@@ -199,7 +199,7 @@ def predict_rbfn(params, inputs):
    # 1. Calcular a ativação (output da camada oculta RBF)
     # O mapeamento acontece sobre as linhas de C e log_sigma (eixo 0)
     # A função gaussian_rbf recebe um centro C_i (linha de C) e um sigma_i (elemento de log_sigma)
-    rbf_outputs = jax.vmap(tanh_rbf, in_axes=(None, 0, 0))(inputs, C, log_sigma)
+    rbf_outputs = jax.vmap(thin_plate_spline_rbf, in_axes=(None, 0, 0))(inputs, C, log_sigma)
     # rbf_outputs tem shape: [num_rbf_neurons]
    # 2. Camada de Saída Linear
     # logits = W_out * rbf_outputs + b_out
@@ -385,7 +385,9 @@ final_args = (params_nn_est, u_interpolation)
 final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_initial_estimated,
                         saveat=SaveAt(ts=jnp.array(time)), args=final_args, max_steps=100000)
 yhat = final_sol.ys.flatten()
-
+soc_series = final_sol.ys[:, 0]
+soc_min = jnp.min(soc_series)
+soc_max = jnp.max(soc_series)
 
 def model_output_step(t, x_step, params_nn, u_interp_obj):
     u = u_interp_obj.evaluate(t)
@@ -480,10 +482,8 @@ TSS = jnp.sum((y - y_mean) ** 2)
 r2 = 1.0 - (RSS / TSS)
 print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
 
-# 1. Gerar valores de SOC para plotagem (de 0 a 1)
-soc_values_np = np.linspace(0.0, 1.0, 100)
+soc_values_np = np.linspace(soc_min, soc_max, 100)
 soc_values_jax = jnp.array(soc_values_np)
-
 
 # 2. Definir a função que calcula as variações e os parâmetros
 # Note que a função predict aceita um array 1D de [SOC] como input
@@ -520,16 +520,16 @@ fig.suptitle('Variação dos Parâmetros do Modelo 1RC em função do SOC', font
 # Plot R0
 axs[0].plot(soc_values_np, R0_actual, 'r-', linewidth=2)
 axs[0].axhline(R0_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
-axs[0].set_ylabel('$R_0$ ($\Omega$)')
-axs[0].set_title('Resistência Série ($R_0$)')
+axs[0].set_ylabel('R_0 (\Omega)')
+axs[0].set_title('Resistência Série (R_0)')
 axs[0].grid(True)
 axs[0].legend()
 
 # Plot R1
 axs[1].plot(soc_values_np, R1_actual, 'g-', linewidth=2)
 axs[1].axhline(R1_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
-axs[1].set_ylabel('$R_1$ ($\Omega$)')
-axs[1].set_title('Resistência de Polarização ($R_1$)')
+axs[1].set_ylabel('R_1 (\Omega)')
+axs[1].set_title('Resistência de Polarização (R_1)')
 axs[1].grid(True)
 axs[1].legend()
 
