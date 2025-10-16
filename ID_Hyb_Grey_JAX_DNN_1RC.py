@@ -46,7 +46,7 @@ plt.tight_layout() # Adjusts subplot params for a tight layout
 plt.show()
 
 #Decimation of the signals
-decimate = 10
+decimate = 1
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
@@ -63,9 +63,10 @@ if time is not None:
     print(f"Training Dataset\nN={N}, fs={fs}, T={T}, Ts={Ts}")
 
 # --- Setup for Multiple Shooting ---
-n_shots = 10 # random
+n_shots = 10    # random
 n_timesteps_per_shot = N // n_shots
 n_states = 2
+
 
 
 # --- Neural Network Helper Functions (from JAX ANN example) ---
@@ -106,10 +107,10 @@ def hybrid_battery_1rc_jax(t, x, args):
     # Outputs -> parameters variations (delta_R0, delta_R1, delta_C1)
     nn_input = jnp.array([x[0]])
     delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-    R0 = 0.2462*(1+delta_R0)
-    R1 = 2889.1884*(1+delta_R1)
-    C1 = 3319.8907*(1+delta_C1)
-    dx  = [-0.3839*u/3440.05372, -1/R1/C1*x[1]+1/C1*u]
+    R0 = 0.268*(1+delta_R0)
+    R1 = 56.3327*(1+delta_R1)
+    C1 = 3.6205*1e3*(1+delta_C1)
+    dx  = [-1.0046*1e-4*u/3440.05372, -1/R1/C1*x[1]+1/C1*u]
     dx = jnp.array(dx)
     return dx
 
@@ -176,7 +177,7 @@ def objective_jax_nn(decision_vars):
         OCV = jnp.polyval(p, x_step[0])
         nn_input = jnp.array([x_step[0]])
         delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-        R0 = 0.2462*(1+delta_R0)
+        R0 = 0.268*(1+delta_R0)
         # A saída é: OCV + R0*u + Vc (x[1])
         y_pred_step = OCV + R0 * u + x_step[1]
         #y_pred_step = OCV + 0.2462 * u + x_step[1]
@@ -262,6 +263,9 @@ final_args = (params_nn_est, u_interpolation)
 final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_initial_estimated,
                         saveat=SaveAt(ts=jnp.array(time)), args=final_args, max_steps=100000)
 yhat = final_sol.ys.flatten()
+soc_series = final_sol.ys[:, 0]
+soc_min = jnp.min(soc_series)
+soc_max = jnp.max(soc_series)
 
 def model_output_step(t, x_step,params_nn, u_interp_obj):
     u = u_interp_obj.evaluate(t)
@@ -279,7 +283,7 @@ def model_output_step(t, x_step,params_nn, u_interp_obj):
     OCV = jnp.polyval(p, x_step[0])
     nn_input = jnp.array([x_step[0]])
     delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-    R0 = 0.2462*(1+delta_R0)
+    R0 = 0.268*(1+delta_R0)
     # A saída é: OCV + R0*u + Vc (x[1])
     y_pred_step = OCV + R0 * u + x_step[1]
     #y_pred_step = OCV + 0.2462 * u + x_step[1]
@@ -292,7 +296,7 @@ y_mean = jnp.mean(y)
 RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
 r2 = 1.0 - (RSS / TSS)
-print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
+print(f"R²: {r2:.8f}, MSE = {MSE:.8f}")
 
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='Measured Data (y)', alpha=0.6)
@@ -351,10 +355,10 @@ y_mean = jnp.mean(y)
 RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
 r2 = 1.0 - (RSS / TSS)
-print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
+print(f"R²: {r2:.8f}, MSE = {MSE:.8f}")
 
 # 1. Gerar valores de SOC para plotagem (de 0 a 1)
-soc_values_np = np.linspace(0.0, 1.0, 100)
+soc_values_np = np.linspace(soc_min, soc_max, 100)
 soc_values_jax = jnp.array(soc_values_np)
 
 # 2. Definir a função que calcula as variações e os parâmetros
@@ -375,8 +379,8 @@ delta_R0_vec, delta_R1_vec, delta_C1_vec = vmap_calculate_deltas(soc_values_jax,
 # R1 = 2889.1884*(1+delta_R1)
 # C1 = 3319.8907*(1+delta_C1)
 R0_nominal = 0.2462
-R1_nominal = 2889.1884
-C1_nominal = 3319.8907
+R1_nominal = 161241375.4855
+C1_nominal = 3321.1916
 
 # 5. Calcular os parâmetros absolutos
 R0_actual = R0_nominal * (1 + delta_R0_vec)
