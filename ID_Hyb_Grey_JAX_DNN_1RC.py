@@ -1,6 +1,7 @@
 from scipy.integrate import odeint
 from scipy.optimize import minimize
 from scipy.io import loadmat
+from scipy.io import savemat
 from tqdm import tqdm # For the progress bar
 import os
 import scipy.io
@@ -11,14 +12,50 @@ import matplotlib.pyplot as plt
 from diffrax import diffeqsolve, Dopri5, ODETerm, SaveAt, LinearInterpolation
 from jax import random, grad, jit, vmap
 from jax.flatten_util import ravel_pytree
-
+import argparse
+import os
 #Checking where JAX is running
-try:
-    print(f"JAX is running on: {jax.devices()[0].platform.upper()}")
-except IndexError:
-    print("No JAX devices found.")
+#try:
+#    print(f"JAX is running on: {jax.devices()[0].platform.upper()}")
+#except IndexError:
+#    print("No JAX devices found.")
 
 jax.config.update("jax_enable_x64", True)
+
+# --- Configuração dos Argumentos de Linha de Comando ---
+parser = argparse.ArgumentParser(description='Treinamento do Modelo Híbrido de Bateria.')
+parser.add_argument(
+    '--activation',
+    type=str,
+    choices=['relu', 'tanh'],
+    default='tanh',
+    help='Função de ativação a ser usada na camada oculta.'
+)
+parser.add_argument(
+    '--neurons',
+    type=int,
+    default=64,
+    help='Número de neurônios na camada oculta.'
+)
+parser.add_argument(
+    '--decimate',
+    type=int,
+    default=2,
+    help='Fator de decimação dos dados.'
+)
+parser.add_argument(
+    '--n_shots',
+    type=int,
+    default=50,
+    help='Número de tiros para o Multiple Shooting.'
+)
+args = parser.parse_args()
+
+# Armazena os argumentos em variáveis para fácil uso
+ACTIVATION_NAME = args.activation
+NUM_NEURONS = args.neurons
+DECIMATE = args.decimate
+N_SHOTS = args.n_shots
 
 # Loading training dataset
 DATA = loadmat('data_train.mat')
@@ -43,10 +80,10 @@ axs[1].legend()
 axs[1].grid(True)
 
 plt.tight_layout() # Adjusts subplot params for a tight layout
-plt.show()
+#plt.show()
 
 #Decimation of the signals
-decimate = 1
+decimate = DECIMATE
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
@@ -60,10 +97,10 @@ if time is not None:
     Ts = time[1] - time[0]
     fs = 1 / Ts
     T = time[-1]
-    print(f"Training Dataset\nN={N}, fs={fs}, T={T}, Ts={Ts}")
+   # print(f"Training Dataset\nN={N}, fs={fs}, T={T}, Ts={Ts}")
 
 # --- Setup for Multiple Shooting ---
-n_shots = 10    # random
+n_shots = N_SHOTS  # random
 n_timesteps_per_shot = N // n_shots
 n_states = 2
 
@@ -84,13 +121,20 @@ def init_network_params(sizes, key):
 def relu(x):
   return jnp.maximum(0, x)
 
+# --- SELECIONA A FUNÇÃO DE ATIVAÇÃO ---
+if ACTIVATION_NAME == 'relu':
+    activation_fn = relu
+    #print("Usando ativação: ReLU")
+else:
+    activation_fn = jnp.tanh
+    #print("Usando ativação: Tanh")
+
 def predict(params, inputs):
   """Neural network forward pass."""
   activations = inputs
   for w, b in params[:-1]:
     outputs = jnp.dot(w, activations) + b
-    activations = jnp.tanh(outputs) # Changed from relu to tanh
-    #activations = relu(outputs)
+    activations = activation_fn(outputs) # Changed from relu to tanh
 
   final_w, final_b = params[-1]
   logits = jnp.dot(final_w, activations) + final_b
@@ -108,9 +152,9 @@ def hybrid_battery_1rc_jax(t, x, args):
     nn_input = jnp.array([x[0]])
     delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
     R0 = 0.268*(1+delta_R0)
-    R1 = 56.3327*(1+delta_R1)
-    C1 = 3.6205*1e3*(1+delta_C1)
-    dx  = [-1.0046*1e-4*u/3440.05372, -1/R1/C1*x[1]+1/C1*u]
+    R1 = 8150.9172*(1+delta_R1)
+    C1 = 3082.9981*(1+delta_C1)
+    dx  = [-0.3410*u/3440.05372, -1/R1/C1*x[1]+1/C1*u]
     dx = jnp.array(dx)
     return dx
 
@@ -122,7 +166,7 @@ y_data = jnp.array(y.reshape(n_shots, n_timesteps_per_shot))
 u_interpolation = LinearInterpolation(ts=time, ys=u)
 
 # --- NN and Optimization Configuration ---
-nn_layer_sizes = [1, 64, 3]  # 1 inputs (SOC), 1 hidden layers of 64, 3 outputs
+nn_layer_sizes = [1, NUM_NEURONS, 3]  # 1 inputs (SOC), 1 hidden layers of 64, 3 outputs
 solver = Dopri5()
 
 # --- Create Initial Guess and Parameter Structures ---
@@ -177,7 +221,7 @@ def objective_jax_nn(decision_vars):
         OCV = jnp.polyval(p, x_step[0])
         nn_input = jnp.array([x_step[0]])
         delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-        R0 = 0.268*(1+delta_R0)
+        R0 = 0.2462*(1+delta_R0)
         # A saída é: OCV + R0*u + Vc (x[1])
         y_pred_step = OCV + R0 * u + x_step[1]
         #y_pred_step = OCV + 0.2462 * u + x_step[1]
@@ -256,7 +300,7 @@ params_nn_est = params_nn_struct(result.x[:len_nn_params])
 x_initial_estimated = jnp.array(result.x[len_nn_params:len_nn_params+n_states])
 
 
-print("\n--- Identification Results ---")
+#print("\n--- Identification Results ---")
 
 # --- Time-Domain Validation Plot ---
 final_args = (params_nn_est, u_interpolation)
@@ -283,20 +327,22 @@ def model_output_step(t, x_step,params_nn, u_interp_obj):
     OCV = jnp.polyval(p, x_step[0])
     nn_input = jnp.array([x_step[0]])
     delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-    R0 = 0.268*(1+delta_R0)
+    R0 = 0.2462*(1+delta_R0)
     # A saída é: OCV + R0*u + Vc (x[1])
     y_pred_step = OCV + R0 * u + x_step[1]
     #y_pred_step = OCV + 0.2462 * u + x_step[1]
     return y_pred_step
 
 y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(jnp.array(time), final_sol.ys, params_nn_est, u_interpolation)
+y_hat_train = y_hat
+
 #Metrics
-MSE = np.mean((y-y_hat)**2)
+MSEt = np.mean((y-y_hat)**2)
 y_mean = jnp.mean(y)
 RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
-r2 = 1.0 - (RSS / TSS)
-print(f"R²: {r2:.8f}, MSE = {MSE:.8f}")
+r2t = 1.0 - (RSS / TSS)
+print(f"Training: R²: {r2t:.8f}, MSE = {MSEt:.8f}")
 
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='Measured Data (y)', alpha=0.6)
@@ -307,7 +353,7 @@ plt.ylabel('Velocity (w)')
 plt.title('Time-Domain Validation of the Hybrid Model')
 plt.legend()
 plt.grid(True)
-plt.show()
+#plt.show()
 
 #Loading validation dataset
 DATA = loadmat('data_val.mat')
@@ -324,7 +370,7 @@ Ts = time[1]-time[0]
 fs = 1/Ts
 T = time[-1]  # Total time in seconds
 
-print(f"\nValidation Dataset\nN ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
+#print(f"\nValidation Dataset\n N ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
 
 
 # Create a differentiable interpolation object for the input signal
@@ -338,6 +384,7 @@ final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_init
 yhat = final_sol.ys.flatten()
 
 y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(jnp.array(time), final_sol.ys, params_nn_est, u_interpolation)
+y_hat_val = y_hat
 # # Plot final results
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='True state', alpha=0.4)
@@ -347,15 +394,15 @@ plt.xlabel('Time (s)')
 plt.title('Model Identification Result')
 plt.legend()
 plt.grid(True)
-plt.show()
+#plt.show()
 
 #Metrics
-MSE = np.mean((y-y_hat)**2)
+MSEv = np.mean((y-y_hat)**2)
 y_mean = jnp.mean(y)
 RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
-r2 = 1.0 - (RSS / TSS)
-print(f"R²: {r2:.8f}, MSE = {MSE:.8f}")
+r2v = 1.0 - (RSS / TSS)
+print(f"Validation: R²: {r2v:.8f}, MSE = {MSEv:.8f}")
 
 # 1. Gerar valores de SOC para plotagem (de 0 a 1)
 soc_values_np = np.linspace(soc_min, soc_max, 100)
@@ -379,8 +426,8 @@ delta_R0_vec, delta_R1_vec, delta_C1_vec = vmap_calculate_deltas(soc_values_jax,
 # R1 = 2889.1884*(1+delta_R1)
 # C1 = 3319.8907*(1+delta_C1)
 R0_nominal = 0.2462
-R1_nominal = 161241375.4855
-C1_nominal = 3321.1916
+R1_nominal = 38150.9172
+C1_nominal = 3082.9981
 
 # 5. Calcular os parâmetros absolutos
 R0_actual = R0_nominal * (1 + delta_R0_vec)
@@ -395,7 +442,7 @@ fig.suptitle('Variação dos Parâmetros do Modelo 1RC em função do SOC', font
 # Plot R0
 axs[0].plot(soc_values_np, R0_actual, 'r-', linewidth=2)
 axs[0].axhline(R0_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
-axs[0].set_ylabel('$R_0$ ($\Omega$)')
+axs[0].set_ylabel('R_0 ')
 axs[0].set_title('Resistência Série ($R_0$)')
 axs[0].grid(True)
 axs[0].legend()
@@ -403,7 +450,7 @@ axs[0].legend()
 # Plot R1
 axs[1].plot(soc_values_np, R1_actual, 'g-', linewidth=2)
 axs[1].axhline(R1_nominal, color='k', linestyle='--', alpha=0.6, label='Valor Nominal')
-axs[1].set_ylabel('$R_1$ ($\Omega$)')
+axs[1].set_ylabel('R_1')
 axs[1].set_title('Resistência de Polarização ($R_1$)')
 axs[1].grid(True)
 axs[1].legend()
@@ -418,4 +465,35 @@ axs[2].grid(True)
 axs[2].legend()
 
 plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Ajusta para o suptitle
-plt.show()
+#plt.show()
+
+sim_results = {
+    'Params' : params_nn_est,
+    'y_hat_train': y_hat_train,
+    'y_hat_val': y_hat_val,
+    'Train_Metrics': np.array([r2t,MSEt]),
+    'Validation_Metrics': np.array([r2v,MSEv]),
+    'N_shots': n_shots,
+    'Neurons': NUM_NEURONS,
+    'Activation': ACTIVATION_NAME,
+    'Decimation': decimate,
+    'soc_values': soc_values_np,
+    'R0_actual': np.array(R0_actual),
+    'R1_actual': np.array(R1_actual),
+    'C1_actual': np.array(C1_actual)
+}
+
+#Name and time stamp for the save file
+simulation_name = "1RC_LPV_MLP"
+file_name = f"results_{simulation_name}_{ACTIVATION_NAME}_{NUM_NEURONS}_{decimate}_{n_shots}.mat"
+#Saving the results
+try:
+    # A função savemat() pega o dicionário e o salva no arquivo .mat
+    # O argumento 'do_compression=True' é opcional e pode reduzir o tamanho do arquivo
+    savemat(file_name, sim_results, do_compression=True)
+
+    print(f"Results saved succesfully")
+    print(f"Saved variables: {list(sim_results.keys())}")
+
+except Exception as e:
+    print(f"Error saving the results: {e}")
