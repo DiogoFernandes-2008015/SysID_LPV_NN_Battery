@@ -152,9 +152,9 @@ def hybrid_battery_1rc_jax(t, x, args):
     nn_input = jnp.array([x[0]])
     delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
     R0 = 0.268*(1+delta_R0)
-    R1 = 8150.9172*(1+delta_R1)
-    C1 = 3082.9981*(1+delta_C1)
-    dx  = [-0.3410*u/3440.05372, -1/R1/C1*x[1]+1/C1*u]
+    R1 = 56.3327*(1+delta_R1)
+    C1 = 3.6205e+03*(1+delta_C1)
+    dx  = [-1.0046e-04*u/3440.05372, -1/R1/C1*x[1]+1/C1*u]
     dx = jnp.array(dx)
     return dx
 
@@ -221,7 +221,7 @@ def objective_jax_nn(decision_vars):
         OCV = jnp.polyval(p, x_step[0])
         nn_input = jnp.array([x_step[0]])
         delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-        R0 = 0.2462*(1+delta_R0)
+        R0 = 0.268*(1+delta_R0)
         # A saída é: OCV + R0*u + Vc (x[1])
         y_pred_step = OCV + R0 * u + x_step[1]
         #y_pred_step = OCV + 0.2462 * u + x_step[1]
@@ -272,7 +272,7 @@ def cons_jac_for_scipy(dv_np):
 # --- Run Optimization ---
 
 cons = ({'type': 'eq', 'fun': cons_for_scipy, 'jac': cons_jac_for_scipy})
-max_iterations = 10000 # Increased iterations for the more complex model
+max_iterations = 2000 # Increased iterations for the more complex model
 
 with tqdm(total=max_iterations, desc="Optimizing Hybrid Model") as pbar:
     def callback(xk):
@@ -327,7 +327,7 @@ def model_output_step(t, x_step,params_nn, u_interp_obj):
     OCV = jnp.polyval(p, x_step[0])
     nn_input = jnp.array([x_step[0]])
     delta_R0, delta_R1, delta_C1 = predict(params_nn, nn_input)
-    R0 = 0.2462*(1+delta_R0)
+    R0 = 0.268*(1+delta_R0)
     # A saída é: OCV + R0*u + Vc (x[1])
     y_pred_step = OCV + R0 * u + x_step[1]
     #y_pred_step = OCV + 0.2462 * u + x_step[1]
@@ -425,9 +425,9 @@ delta_R0_vec, delta_R1_vec, delta_C1_vec = vmap_calculate_deltas(soc_values_jax,
 # R0 = 0.2462*(1+delta_R0)
 # R1 = 2889.1884*(1+delta_R1)
 # C1 = 3319.8907*(1+delta_C1)
-R0_nominal = 0.2462
-R1_nominal = 38150.9172
-C1_nominal = 3082.9981
+R0_nominal = 0.2680
+R1_nominal = 56.3327
+C1_nominal = 3.6205e+03
 
 # 5. Calcular os parâmetros absolutos
 R0_actual = R0_nominal * (1 + delta_R0_vec)
