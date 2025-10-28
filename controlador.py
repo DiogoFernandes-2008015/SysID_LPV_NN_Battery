@@ -11,7 +11,7 @@ import sys
  #   {'activation': 'tanh', 'neurons': 64, 'decimate': 2,'n_shots': 10}
 #]
 # --- Defina os experimentos RBF ---
-experimentos = [
+#experimentos = [
   #  {'activation': 'tanh', 'neurons': 64, 'decimate': 10,'n_shots': 10},
   #  {'activation': 'gaussian', 'neurons': 64, 'decimate': 2,'n_shots': 50},
   #  {'activation': 'iq', 'neurons': 32, 'decimate': 2,'n_shots': 10},
@@ -20,16 +20,24 @@ experimentos = [
   #  {'activation': 'imq', 'neurons': 64, 'decimate': 2,'n_shots': 10},
   #  {'activation': 'tanh', 'neurons': 32, 'decimate': 2,'n_shots': 50},
   #  {'activation': 'tanh', 'neurons': 64, 'decimate': 2,'n_shots': 50},
-     {'activation': 'imq', 'neurons': 16, 'decimate': 2, 'n_shots': 10},
-     {'activation': 'imq', 'neurons': 32, 'decimate': 2,'n_shots': 10},
-     {'activation': 'imq', 'neurons': 64, 'decimate': 2,'n_shots': 10},
-     {'activation': 'iq', 'neurons': 16, 'decimate': 2, 'n_shots': 10},
-     {'activation': 'iq', 'neurons': 32, 'decimate': 2,'n_shots': 10},
-     {'activation': 'iq', 'neurons': 64, 'decimate': 2,'n_shots': 10},
+  #   {'activation': 'imq', 'neurons': 16, 'decimate': 2, 'n_shots': 10},
+  #   {'activation': 'imq', 'neurons': 32, 'decimate': 2,'n_shots': 10},
+  #   {'activation': 'imq', 'neurons': 64, 'decimate': 2,'n_shots': 10},
+  #   {'activation': 'iq', 'neurons': 16, 'decimate': 2, 'n_shots': 10},
+  #   {'activation': 'iq', 'neurons': 32, 'decimate': 2,'n_shots': 10},
+  #   {'activation': 'iq', 'neurons': 64, 'decimate': 2,'n_shots': 10},
+#]
+experimentos = [
+    {'activation': 'morlet', 'neurons': 16, 'decimate': 2, 'n_shots': 10},
+    {'activation': 'morlet', 'neurons': 32, 'decimate': 2, 'n_shots': 10},
+    {'activation': 'morlet', 'neurons': 64, 'decimate': 2, 'n_shots': 10},
+    {'activation': 'hat', 'neurons': 16, 'decimate': 2, 'n_shots': 10},
+    {'activation': 'hat', 'neurons': 32, 'decimate': 2, 'n_shots': 10},
+    {'activation': 'hat', 'neurons': 64, 'decimate': 2, 'n_shots': 10},
 ]
 # Nome do seu script principal
-script_principal = 'ID_Hyb_Grey_JAX_RBF_1RC.py'  # <-- Certifique-se que o nome está correto
-
+#script_principal = 'ID_Hyb_Grey_JAX_RBF_1RC.py'  # <-- Certifique-se que o nome está correto
+script_principal = 'ID_Hyb_Grey_JAX_WNN_1RC.py'
 # Pega o caminho do executável do Python (garante que use o mesmo 'python')
 python_executable = sys.executable
 
